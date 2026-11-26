@@ -1,0 +1,44 @@
+name: CI runner testbed
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - .github/workflows/runner-smoke.yml
+permissions:
+  contents: read
+jobs:
+  smoke:
+    name: Local worker ${{ matrix.slot }}
+    runs-on: gravitas-linux
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      max-parallel: 5
+      matrix:
+        slot: [1, 2, 3, 4, 5]
+    steps:
+      - name: Check worker tools and KVM
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$RUNNER_OS" = Linux
+          test "$RUNNER_ARCH" = X64
+          java -version
+          gh --version
+          sdkmanager --version
+          docker compose version
+          python3 - <<'PY'
+          import fcntl
+          with open('/dev/kvm', 'rb', buffering=0) as kvm:
+              assert fcntl.ioctl(kvm, 0xAE00, 0) == 12
+          PY
+      - name: Check nested containers, networking and builds
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker info --format 'Storage: {{.Driver}}'
+          docker run --rm alpine:3.23 sh -c 'wget -qO- https://api.github.com/zen'
+          printf 'FROM alpine:3.23\nRUN echo nested-build-ok\n' | docker build -t gravitas-runner-smoke -
+          docker run --rm gravitas-runner-smoke echo nested-run-ok
+      - name: Hold capacity for autoscaling observation
+        run: sleep 30
